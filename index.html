@@ -7,18 +7,30 @@
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         h1 { color: #2c3e50; text-align: center; font-size: 1.5rem; margin-bottom: 20px; }
-        button { background-color: #3498db; color: white; border: none; padding: 15px 40px; font-size: 1.1rem; border-radius: 30px; margin-bottom: 20px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        button:active { background-color: #2980b9; }
+        
+        button { border: none; padding: 15px 40px; font-size: 1.1rem; border-radius: 30px; margin-bottom: 15px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 100%; max-width: 350px; color: white; transition: background-color 0.3s; }
+        #btn-iniciar { background-color: #3498db; } 
+        #btn-iniciar:active { background-color: #2980b9; }
+        #btn-pausa { background-color: #e74c3c; display: none; } 
+        
         #webcam-container { width: 100%; display: flex; justify-content: center; }
         #webcam-container canvas { width: 100% !important; max-width: 350px !important; height: auto !important; border-radius: 15px; box-shadow: 0 6px 12px rgba(0,0,0,0.15); }
+        
         #label-container { margin-top: 25px; width: 100%; max-width: 350px; }
-        #label-container div { background: white; padding: 15px 20px; margin-bottom: 10px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); font-weight: bold; border-left: 5px solid #3498db; }
+        
+        /* Nuevos estilos para el resultado único */
+        .resultado-ganador { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border-top: 6px solid #2ecc71; text-align: center; }
+        .resultado-ganador h3 { color: #27ae60; margin: 0 0 10px 0; font-size: 1.4rem; }
+        .resultado-ganador p { color: #555; font-size: 0.95rem; line-height: 1.5; margin: 0; text-align: left; }
+        .resultado-duda { background: white; padding: 15px; border-radius: 10px; text-align: center; color: #7f8c8d; border-top: 6px solid #bdc3c7; }
     </style>
 </head>
 <body>
 
     <h1>Análisis Ocular</h1>
-    <button type="button" onclick="init()">Iniciar Cámara</button>
+    
+    <button id="btn-iniciar" type="button" onclick="init()">Iniciar Cámara</button>
+    <button id="btn-pausa" type="button" onclick="togglePausa()">Capturar Resultado</button>
     
     <div id="webcam-container"></div>
     <div id="label-container"></div>
@@ -27,14 +39,29 @@
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
     
     <script type="text/javascript">
-        // =======================================================================
-        // ⚠️ SOLO CAMBIA EL ENLACE DE AQUÍ ABAJO (Debe terminar con la barra / )
-        // =======================================================================
         const URL = "https://teachablemachine.withgoogle.com/models/N8bFJjn4w/";
 
         let model, webcam, labelContainer, maxPredictions;
+        let isPredicting = true; 
+
+        // =========================================================================
+        // 🛑 TUS DESCRIPCIONES (Edita los textos que están entre comillas)
+        // IMPORTANTE: El nombre de la izquierda debe estar escrito EXACTAMENTE igual 
+        // a como llamaste a esa clase en Teachable Machine (mayúsculas y espacios).
+        // =========================================================================
+        const descripciones = {
+            "Hiperemia Leve": "Se detectó visualmente un enrojecimiento tenue en la parte blanca del ojo, líneas de vasos sanguíneos finos ligeramente abiertos y una tonalidad rosa suave",
+            "Conjuntivitis": "Se identifica como probable conjuntivitis debido al patrón de enrojecimiento difuso en la esclerótica (parte blanca del ojo), que suele estar acompañado de inflamación en los vasos sanguíneos.",
+            "Ojo Sano": "Un ojo sano visualmente observando la parte blanca de la esclerótica su ojo se encuentra limpio y sin manchas, la córnea transparente y brillante, y las pupilas reaccionan bien a la luz",
+            "Derrame subconjuntival": "Se detectó una mancha roja brillante o muy oscura bien definida sobre la parte blanca del ojo (esclerótica)",
+"Uveitis": "Se detectaron visualmente signos externos como enrojecimiento del ojo, cambios en la forma o reacción de la pupila",
+"Pterigión": "Se detectó visualmente una carnosidad o tejido de forma triangular que avanza desde la parte blanca del ojo (esclerótica) hacia la córnea (la zona transparente central). Suele tener un color blanquecino, amarillento o rosado, y se acompaña con frecuencia de vasitos rojos visibles."
+        };
 
         async function init() {
+            document.getElementById("btn-iniciar").style.display = "none";
+            document.getElementById("btn-pausa").style.display = "block";
+
             const modelURL = URL + "model.json";
             const metadataURL = URL + "metadata.json";
 
@@ -49,27 +76,64 @@
 
             document.getElementById("webcam-container").innerHTML = "";
             document.getElementById("webcam-container").appendChild(webcam.canvas);
-            
             labelContainer = document.getElementById("label-container");
-            labelContainer.innerHTML = "";
-            for (let i = 0; i < maxPredictions; i++) { 
-                labelContainer.appendChild(document.createElement("div"));
-            }
         }
 
         async function loop() {
-            webcam.update(); 
-            await predict();
+            if (isPredicting) {
+                webcam.update(); 
+                await predict();
+            }
             window.requestAnimationFrame(loop);
         }
 
         async function predict() {
             const predictions = await model.predict(webcam.canvas);
+            
+            // 1. Buscar cuál es la patología con el porcentaje más alto
+            let mayorProbabilidad = 0;
+            let claseGanadora = "";
+
             for (let i = 0; i < maxPredictions; i++) {
-                // Multiplicamos por 100 para que se vea como porcentaje (Ej: 95%)
-                const porcentaje = Math.round(predictions[i].probability * 100);
-                const texto = predictions[i].className + ": " + porcentaje + "%";
-                labelContainer.childNodes[i].innerHTML = texto;
+                if (predictions[i].probability > mayorProbabilidad) {
+                    mayorProbabilidad = predictions[i].probability;
+                    claseGanadora = predictions[i].className;
+                }
+            }
+
+            const porcentaje = Math.round(mayorProbabilidad * 100);
+
+            // 2. Mostrar solo el ganador si está muy seguro (más del 60%)
+            if (porcentaje > 60) {
+                // Busca la explicación en nuestro diccionario, o pone un texto por defecto si te olvidaste de agregarla
+                let explicacion = descripciones[claseGanadora] || "Características visuales detectadas. (Falta agregar descripción en el código para esta patología).";
+                
+                labelContainer.innerHTML = `
+                    <div class="resultado-ganador">
+                        <h3>${claseGanadora} (${porcentaje}%)</h3>
+                        <p>${explicacion}</p>
+                    </div>
+                `;
+            } else {
+                // Si ninguna llega al 60%, pide que se acerque mejor a la cámara
+                labelContainer.innerHTML = `
+                    <div class="resultado-duda">
+                        <p>Analizando...<br><small>Acerca el ojo a la cámara o busca mejor iluminación.</small></p>
+                    </div>
+                `;
+            }
+        }
+
+        function togglePausa() {
+            isPredicting = !isPredicting; 
+            const btnPausa = document.getElementById("btn-pausa");
+            
+            if (isPredicting) {
+                btnPausa.innerText = "Capturar Resultado";
+                btnPausa.style.backgroundColor = "#e74c3c"; 
+            } else {
+                btnPausa.innerText = "Reanudar Análisis";
+                btnPausa.style.backgroundColor = "#2ecc71"; 
             }
         }
     </script>
